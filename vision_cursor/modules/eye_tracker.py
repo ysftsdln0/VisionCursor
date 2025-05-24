@@ -89,21 +89,21 @@ class EyeTracker:
                 left_eye_center = self._get_eye_center(face_landmarks, self.LEFT_EYE)
                 right_eye_center = self._get_eye_center(face_landmarks, self.RIGHT_EYE)
                 
-                if left_eye_center and right_eye_center:
+                if left_eye_center is not None and right_eye_center is not None:
                     # İki göz arasındaki orta nokta
                     eye_mid_x = (left_eye_center[0] + right_eye_center[0]) / 2
                     eye_mid_y = (left_eye_center[1] + right_eye_center[1]) / 2
                     
                     # Normalizasyon ve ekran koordinatlarına dönüştürme
-                    screen_x = np.interp(eye_mid_x, [0.0, 1.0], [0, self.screen_width])
-                    screen_y = np.interp(eye_mid_y, [0.0, 1.0], [0, self.screen_height])
+                    screen_x = np.interp(eye_mid_x, [0.2, 0.8], [0, self.screen_width])
+                    screen_y = np.interp(eye_mid_y, [0.2, 0.8], [0, self.screen_height])
                     
                     # Konumu pürüzsüzleştir
                     smoothed_pos = self._smooth_position(screen_x, screen_y)
                     cursor_x, cursor_y = smoothed_pos
                     
                     # İmleci hareket ettir
-                    pyautogui.moveTo(cursor_x, cursor_y)
+                    pyautogui.moveTo(int(cursor_x), int(cursor_y))
                     
                     # Gözün sabit kalıp kalmadığını kontrol et
                     current_time = time.time()
@@ -178,7 +178,7 @@ class EyeTracker:
                 left_eye_center = self._get_eye_center(face_landmarks, self.LEFT_EYE)
                 right_eye_center = self._get_eye_center(face_landmarks, self.RIGHT_EYE)
                 
-                if left_eye_center and right_eye_center:
+                if left_eye_center is not None and right_eye_center is not None:
                     h, w, _ = image.shape
                     left_x, left_y = int(left_eye_center[0] * w), int(left_eye_center[1] * h)
                     right_x, right_y = int(right_eye_center[0] * w), int(right_eye_center[1] * h)

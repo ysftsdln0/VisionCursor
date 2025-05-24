@@ -3,177 +3,116 @@
 
 import sys
 import os
-import time
-import threading
 import logging
 from PyQt5.QtWidgets import QApplication, QMessageBox
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
-
-# Modülleri içe aktar
+from PyQt5.QtCore import Qt
+from modules.gui import VisionCursorGUI
 from modules.eye_tracker import EyeTracker
 from modules.speech_recognizer import SpeechRecognizer
-from modules.gui import VisionCursorGUI
+import threading
 
 # Loglama yapılandırması
 logging.basicConfig(
+    filename='vision_cursor.log',
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('vision_cursor.log'),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
 
-logger = logging.getLogger(__name__)
-
-class WorkerThread(QThread):
-    """Arka plan işlemleri için worker thread"""
-    error = pyqtSignal(str)
-    
-    def __init__(self, func, *args, **kwargs):
+class WorkerThread(threading.Thread):
+    def __init__(self, target, *args, **kwargs):
         super().__init__()
-        self.func = func
+        self.target = target
         self.args = args
         self.kwargs = kwargs
-        
+        self.daemon = True
+
     def run(self):
         try:
-            self.func(*self.args, **self.kwargs)
+            self.target(*self.args, **self.kwargs)
         except Exception as e:
-            self.error.emit(str(e))
-            logger.error(f"Thread hatası: {str(e)}")
+            logging.error(f"Thread hatası: {str(e)}")
 
 def check_dependencies():
-    """Gerekli bağımlılıkları kontrol et"""
-    try:
-        import cv2
-        import mediapipe
-        import PyQt5
-        import pyautogui
-        import speech_recognition
-        import whisper
-        import numpy
-        import dlib
-        import PIL
-        return True
-    except ImportError as e:
-        logger.error(f"Bağımlılık hatası: {str(e)}")
-        return False
+    """Gerekli paketlerin yüklü olup olmadığını kontrol et"""
+    required_modules = [
+        ('cv2', 'opencv-python'),
+        ('mediapipe', 'mediapipe'),
+        ('PyQt5', 'PyQt5'),
+        ('pyautogui', 'pyautogui'),
+        ('speech_recognition', 'SpeechRecognition'),
+        ('whisper', 'openai-whisper'),
+        ('numpy', 'numpy'),
+        ('face_recognition', 'face-recognition'),
+        ('PIL', 'pillow'),
+        ('dotenv', 'python-dotenv')
+    ]
+    missing_packages = []
+    for module_name, package_name in required_modules:
+        try:
+            __import__(module_name)
+        except ImportError:
+            missing_packages.append(package_name)
+    if missing_packages:
+        error_msg = f"Eksik paketler: {', '.join(missing_packages)}"
+        logging.error(error_msg)
+        return False, error_msg
+    return True, None
 
 def main():
-    """Ana uygulama fonksiyonu"""
-    
-    # Bağımlılıkları kontrol et
-    if not check_dependencies():
-        QMessageBox.critical(None, "Hata", "Gerekli bağımlılıklar eksik. Lütfen requirements.txt dosyasındaki paketleri yükleyin.")
-        sys.exit(1)
-    
-    # PyQt uygulamasını başlat
-    app = QApplication(sys.argv)
-    app.setStyle('Fusion')  # Daha modern bir görünüm
-    
-    # High DPI desteği
-    app.setAttribute(Qt.AA_UseHighDpiPixmaps)
-    
-    # Stil ayarları için style sheet
-    style_sheet = """
-    QMainWindow, QWidget {
-        background-color: #2d2d2d;
-        color: #f0f0f0;
-    }
-    
-    QPushButton {
-        background-color: #0078d7;
-        color: white;
-        border: none;
-        border-radius: 8px;
-        padding: 10px;
-        font-weight: bold;
-    }
-    
-    QPushButton:hover {
-        background-color: #0063b1;
-    }
-    
-    QPushButton:pressed {
-        background-color: #004c8c;
-    }
-    
-    QPushButton:checked {
-        background-color: #00a651;
-    }
-    
-    QGroupBox {
-        border: 2px solid #3a3a3a;
-        border-radius: 5px;
-        margin-top: 20px;
-        font-weight: bold;
-        font-size: 16px;
-    }
-    
-    QGroupBox::title {
-        subcontrol-origin: margin;
-        left: 10px;
-        padding: 0 5px;
-    }
-    
-    QTextEdit {
-        background-color: #3a3a3a;
-        color: #f0f0f0;
-        border: 1px solid #555;
-        border-radius: 5px;
-        padding: 5px;
-        selection-background-color: #0078d7;
-        selection-color: white;
-    }
-    
-    QStatusBar {
-        background-color: #222;
-        color: #f0f0f0;
-        border-top: 1px solid #555;
-    }
-    """
-    
-    app.setStyleSheet(style_sheet)
-    
-    # GUI oluştur
-    main_window = VisionCursorGUI()
-    
-    # Modülleri başlat
     try:
-        # Göz takibi modülünü oluştur
-        eye_tracker = EyeTracker()
-        main_window.set_eye_tracker(eye_tracker)
+        # PyQt uygulamasını başlat
+        app = QApplication(sys.argv)
         
-        # Ses tanıma modülünü oluştur
-        speech_recognizer = SpeechRecognizer(callback=main_window.on_speech_recognized)
-        main_window.set_speech_recognizer(speech_recognizer)
+        # Modern stil ayarla
+        app.setStyle('Fusion')
         
-        # Modülleri ayrı thread'lerde başlat
-        eye_tracker_thread = WorkerThread(eye_tracker.start)
-        speech_thread = WorkerThread(speech_recognizer.start)
+        # Bağımlılıkları kontrol et
+        deps_ok, error_msg = check_dependencies()
+        if not deps_ok:
+            QMessageBox.critical(None, "Hata", f"Gerekli paketler eksik!\n\n{error_msg}\n\nLütfen requirements.txt dosyasındaki paketleri yükleyin.")
+            return
         
-        eye_tracker_thread.error.connect(lambda msg: main_window.status_bar.showMessage(f"Göz takibi hatası: {msg}"))
-        speech_thread.error.connect(lambda msg: main_window.status_bar.showMessage(f"Ses tanıma hatası: {msg}"))
+        # Ana pencereyi oluştur
+        window = VisionCursorGUI()
+        window.show()
         
-        eye_tracker_thread.start()
-        speech_thread.start()
+        # Göz takibi ve ses tanıma modüllerini başlat
+        try:
+            eye_tracker = EyeTracker()
+            speech_recognizer = SpeechRecognizer(callback=window.on_speech_recognized)
+            
+            # Modülleri GUI'ye bağla
+            window.set_eye_tracker(eye_tracker)
+            window.set_speech_recognizer(speech_recognizer)
+            
+            # Göz takibini başlat
+            eye_tracker.start()
+            window.eye_tracking_active = True
+            window.eye_tracking_button.setText("Göz Takibini Durdur")
+            window.status_bar.showMessage("Göz takibi aktif")
+            logging.info("Göz takibi başlatıldı")
+            
+            # Ses tanımayı başlat
+            speech_recognizer.start()
+            window.speech_recognition_active = True
+            window.speech_button.setText("Ses Tanımayı Durdur")
+            window.status_bar.showMessage("Ses tanıma aktif")
+            logging.info("Ses tanıma başlatıldı")
+            
+        except Exception as e:
+            error_msg = f"Modül başlatma hatası: {str(e)}"
+            logging.error(error_msg)
+            QMessageBox.critical(window, "Hata", error_msg)
+            return
         
-        # Durumu güncelle
-        main_window.status_bar.showMessage("Sistem hazır")
-        logger.info("Sistem başarıyla başlatıldı")
+        # Uygulama döngüsünü başlat
+        sys.exit(app.exec_())
         
     except Exception as e:
-        error_msg = f"Başlatma hatası: {str(e)}"
-        logger.error(error_msg)
-        main_window.status_bar.showMessage(error_msg)
-        QMessageBox.critical(main_window, "Hata", error_msg)
-    
-    # Ana pencereyi göster
-    main_window.show()
-    
-    # Uygulama döngüsünü başlat
-    sys.exit(app.exec_())
+        error_msg = f"Uygulama hatası: {str(e)}"
+        logging.error(error_msg)
+        QMessageBox.critical(None, "Hata", error_msg)
+        raise
 
 if __name__ == "__main__":
     main() 
