@@ -1,1 +1,23 @@
 2025-05-24 19:10:42,451 - __main__ - INFO - Sistem başarıyla başlatıldı
+2025-05-25 19:04:23,208 - INFO - Göz takibi başlatıldı
+2025-05-25 19:04:23,208 - INFO - Ses tanıma başlatıldı
+2025-05-25 19:07:05,366 - INFO - Göz takibi başlatıldı
+2025-05-25 19:07:05,366 - INFO - Ses tanıma hazır durumda
+2025-05-25 19:07:34,311 - INFO - Göz takibi başlatıldı
+2025-05-25 19:07:34,311 - INFO - Ses tanıma hazır durumda
+2025-05-25 19:07:53,261 - INFO - Göz takibi başlatıldı
+2025-05-25 19:07:53,261 - INFO - Ses tanıma hazır durumda
+2025-05-25 19:08:37,598 - INFO - Göz takibi başlatıldı
+2025-05-25 19:08:37,598 - INFO - Ses tanıma hazır durumda
+2025-05-25 19:09:31,435 - INFO - Göz takibi başlatıldı
+2025-05-25 19:09:31,435 - INFO - Ses tanıma hazır durumda
+2025-05-25 19:10:58,265 - INFO - Göz takibi başlatıldı
+2025-05-25 19:10:58,265 - INFO - Ses tanıma hazır durumda
+2025-05-25 19:13:23,502 - ERROR - Modül başlatma hatası: Göz takibi başlatma hatası: Kamera başlatılamadı!
+2025-05-25 19:13:38,816 - ERROR - Modül başlatma hatası: Göz takibi başlatma hatası: Kamera başlatılamadı!
+2025-05-25 19:15:00,587 - ERROR - Modül başlatma hatası: Göz takibi başlatma hatası: Kamera başlatılamadı!
+2025-05-25 19:17:52,879 - ERROR - Modül başlatma hatası: Göz takibi başlatma hatası: Kamera başlatılamadı!
+2025-05-25 19:19:29,065 - INFO - Göz takibi başlatıldı
+2025-05-25 19:19:29,065 - INFO - Ses tanıma hazır durumda
+2025-05-25 19:23:03,510 - INFO - Göz takibi başlatıldı
+2025-05-25 19:23:03,510 - INFO - Ses tanıma hazır durumda

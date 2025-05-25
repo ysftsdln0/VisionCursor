@@ -11,7 +11,7 @@ from modules.eye_tracker import EyeTracker
 from modules.speech_recognizer import SpeechRecognizer
 import threading
 
-# Loglama yapılandırması
+# log ayarları
 logging.basicConfig(
     filename='vision_cursor.log',
     level=logging.INFO,
@@ -30,10 +30,10 @@ class WorkerThread(threading.Thread):
         try:
             self.target(*self.args, **self.kwargs)
         except Exception as e:
-            logging.error(f"Thread hatası: {str(e)}")
+            logging.error(f"thread hatası: {str(e)}")
 
 def check_dependencies():
-    """Gerekli paketlerin yüklü olup olmadığını kontrol et"""
+    """paketlerin olup olmadığını kontrol et"""
     required_modules = [
         ('cv2', 'opencv-python'),
         ('mediapipe', 'mediapipe'),
@@ -53,59 +53,58 @@ def check_dependencies():
         except ImportError:
             missing_packages.append(package_name)
     if missing_packages:
-        error_msg = f"Eksik paketler: {', '.join(missing_packages)}"
+        error_msg = f"eksik paketler: {', '.join(missing_packages)}"
         logging.error(error_msg)
         return False, error_msg
     return True, None
 
 def main():
     try:
-        # PyQt uygulamasını başlat
+        # pyqt uygulamasını başlat
         app = QApplication(sys.argv)
         
-        # Modern stil ayarla
+        # stil ayarla
         app.setStyle('Fusion')
         
-        # Bağımlılıkları kontrol et
+        # paketleri kontrol et
         deps_ok, error_msg = check_dependencies()
         if not deps_ok:
-            QMessageBox.critical(None, "Hata", f"Gerekli paketler eksik!\n\n{error_msg}\n\nLütfen requirements.txt dosyasındaki paketleri yükleyin.")
+            QMessageBox.critical(None, "hata", f"paketler eksik!\n\n{error_msg}\n\nrequirements.txt dosyasındaki paketleri yükle.")
             return
         
-        # Ana pencereyi oluştur
+        # ana pencereyi oluştur
         window = VisionCursorGUI()
         window.show()
         
-        # Göz takibi ve ses tanıma modüllerini başlat
+        # göz takibi ve ses modüllerini başlat
         try:
             eye_tracker = EyeTracker()
             speech_recognizer = SpeechRecognizer(callback=window.on_speech_recognized)
             
-            # Modülleri GUI'ye bağla
+            # modülleri gui'ye bağla
             window.set_eye_tracker(eye_tracker)
             window.set_speech_recognizer(speech_recognizer)
             
-            # Göz takibini başlat
+            # göz takibini başlat
             eye_tracker.start()
             window.eye_tracking_active = True
-            window.eye_tracking_button.setText("Göz Takibini Durdur")
-            window.status_bar.showMessage("Göz takibi aktif")
-            logging.info("Göz takibi başlatıldı")
+            window.eye_tracking_button.setText("göz takibini durdur")
+            window.status_bar.showMessage("göz takibi aktif")
+            logging.info("göz takibi başlatıldı")
             
-            # Ses tanımayı başlat
-            speech_recognizer.start()
-            window.speech_recognition_active = True
-            window.speech_button.setText("Ses Tanımayı Durdur")
-            window.status_bar.showMessage("Ses tanıma aktif")
-            logging.info("Ses tanıma başlatıldı")
+            # ses tanıma kullanıcı başlatabilir
+            window.speech_recognition_active = False
+            window.speech_button.setText("ses tanımayı başlat")
+            window.status_bar.showMessage("ses tanıma hazır")
+            logging.info("ses tanıma hazır")
             
         except Exception as e:
-            error_msg = f"Modül başlatma hatası: {str(e)}"
+            error_msg = f"modül başlatma hatası: {str(e)}"
             logging.error(error_msg)
-            QMessageBox.critical(window, "Hata", error_msg)
+            QMessageBox.critical(window, "hata", error_msg)
             return
         
-        # Uygulama döngüsünü başlat
+        # uygulama döngüsünü başlat
         sys.exit(app.exec_())
         
     except Exception as e:
