@@ -2,7 +2,7 @@ import sys
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QTextEdit, 
                              QGroupBox, QSplitter, QFileDialog)
-from PyQt5.QtGui import QPixmap, QImage, QFont, QIcon
+from PyQt5.QtGui import QPixmap, QImage, QFont, QIcon, QTextCursor
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, pyqtSlot
 import cv2
 import numpy as np
@@ -89,6 +89,9 @@ class VisionCursorGUI(QMainWindow):
         self.save_button.clicked.connect(self.save_text)
         left_layout.addWidget(self.save_button)
         
+        # Kalibrasyon kontrolleri
+        self._create_calibration_controls(left_layout)
+        
         # Sağ panel (metin kutusu)
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
@@ -127,6 +130,15 @@ class VisionCursorGUI(QMainWindow):
         """Ses tanıma modülünü ayarlar"""
         self.speech_recognizer = speech_recognizer
         
+    def set_performance_monitor(self, performance_monitor):
+        """Performans monitörünü ayarla"""
+        self.performance_monitor = performance_monitor
+        
+        # Performans güncelleme zamanlayıcısı
+        self.perf_timer = QTimer()
+        self.perf_timer.timeout.connect(self.update_performance_stats)
+        self.perf_timer.start(5000)  # 5 saniyede bir güncelle
+    
     def update_camera_feed(self):
         """Kamera görüntüsünü günceller"""
         if self.eye_tracker and self.eye_tracking_active:
@@ -178,6 +190,15 @@ class VisionCursorGUI(QMainWindow):
                 self.speech_recognition_active = False
                 self.speech_button.setText("Ses Tanımayı Başlat")
                 self.status_bar.showMessage("Ses tanıma durduruldu")
+    
+    def update_performance_stats(self):
+        """Performans istatistiklerini günceller"""
+        if hasattr(self, 'performance_monitor'):
+            stats = self.performance_monitor.get_stats()
+            status_text = f"FPS: {stats['fps']['current']:.1f} | " \
+                         f"CPU: %{stats['cpu_usage']['current']:.1f} | " \
+                         f"RAM: %{stats['memory_usage']['current']:.1f}"
+            self.status_bar.showMessage(status_text)
     
     def on_speech_recognized(self, text, is_command=False, command=None):
         """Tanınan metin için callback"""
@@ -235,6 +256,105 @@ class VisionCursorGUI(QMainWindow):
             except Exception as e:
                 self.status_bar.showMessage(f"Kaydetme hatası: {str(e)}")
     
+    def _create_calibration_controls(self, layout):
+        """Kalibrasyon kontrol panelini oluştur"""
+        from PyQt5.QtWidgets import QSlider, QSpinBox
+        
+        calibration_group = QGroupBox("Göz Takibi Kalibrasyonu")
+        cal_layout = QVBoxLayout()
+        
+        # X Offset kontrolü
+        x_layout = QHBoxLayout()
+        x_layout.addWidget(QLabel("X Offset:"))
+        self.x_offset_spin = QSpinBox()
+        self.x_offset_spin.setRange(-500, 500)
+        self.x_offset_spin.setValue(0)
+        self.x_offset_spin.valueChanged.connect(self.update_calibration)
+        x_layout.addWidget(self.x_offset_spin)
+        cal_layout.addLayout(x_layout)
+        
+        # Y Offset kontrolü
+        y_layout = QHBoxLayout()
+        y_layout.addWidget(QLabel("Y Offset:"))
+        self.y_offset_spin = QSpinBox()
+        self.y_offset_spin.setRange(-500, 500)
+        self.y_offset_spin.setValue(0)
+        self.y_offset_spin.valueChanged.connect(self.update_calibration)
+        y_layout.addWidget(self.y_offset_spin)
+        cal_layout.addLayout(y_layout)
+        
+        # X Scale kontrolü
+        x_scale_layout = QHBoxLayout()
+        x_scale_layout.addWidget(QLabel("X Ölçek:"))
+        self.x_scale_spin = QSpinBox()
+        self.x_scale_spin.setRange(50, 200)
+        self.x_scale_spin.setValue(100)
+        self.x_scale_spin.setSuffix("%")
+        self.x_scale_spin.valueChanged.connect(self.update_calibration)
+        x_scale_layout.addWidget(self.x_scale_spin)
+        cal_layout.addLayout(x_scale_layout)
+        
+        # Y Scale kontrolü
+        y_scale_layout = QHBoxLayout()
+        y_scale_layout.addWidget(QLabel("Y Ölçek:"))
+        self.y_scale_spin = QSpinBox()
+        self.y_scale_spin.setRange(50, 200)
+        self.y_scale_spin.setValue(100)
+        self.y_scale_spin.setSuffix("%")
+        self.y_scale_spin.valueChanged.connect(self.update_calibration)
+        y_scale_layout.addWidget(self.y_scale_spin)
+        cal_layout.addLayout(y_scale_layout)
+        
+        # Kalibrasyon sıfırlama butonu
+        reset_cal_button = QPushButton("Kalibrasyonu Sıfırla")
+        reset_cal_button.clicked.connect(self.reset_calibration)
+        cal_layout.addWidget(reset_cal_button)
+        
+        # Ses tanıma test butonu
+        test_speech_button = QPushButton("Ses Tanımayı Test Et")
+        test_speech_button.setFont(QFont("Arial", 12))
+        test_speech_button.clicked.connect(self.test_speech_recognition)
+        cal_layout.addWidget(test_speech_button)
+        
+        # Mikrofon listesi butonu
+        list_mics_button = QPushButton("Mikrofonları Listele")
+        list_mics_button.setFont(QFont("Arial", 12))
+        list_mics_button.clicked.connect(self.list_microphones)
+        cal_layout.addWidget(list_mics_button)
+        
+        # Göz takibi tıklama kontrolü
+        click_layout = QHBoxLayout()
+        click_layout.addWidget(QLabel("Göz Tıklama:"))
+        self.click_enabled_button = QPushButton("Aktif")
+        self.click_enabled_button.setCheckable(True)
+        self.click_enabled_button.setChecked(True)
+        self.click_enabled_button.clicked.connect(self.toggle_eye_clicking)
+        click_layout.addWidget(self.click_enabled_button)
+        cal_layout.addLayout(click_layout)
+        
+        calibration_group.setLayout(cal_layout)
+        layout.addWidget(calibration_group)
+    
+    def update_calibration(self):
+        """Kalibrasyon değerlerini günceller"""
+        if self.eye_tracker:
+            offset_x = self.x_offset_spin.value()
+            offset_y = self.y_offset_spin.value()
+            scale_x = self.x_scale_spin.value() / 100.0
+            scale_y = self.y_scale_spin.value() / 100.0
+            
+            self.eye_tracker.calibrate(offset_x, offset_y, scale_x, scale_y)
+            print(f"Kalibrasyon güncellendi: offset({offset_x}, {offset_y}), scale({scale_x}, {scale_y})")
+    
+    def reset_calibration(self):
+        """Kalibrasyonu varsayılan değerlere sıfırla"""
+        self.x_offset_spin.setValue(0)
+        self.y_offset_spin.setValue(0)
+        self.x_scale_spin.setValue(100)
+        self.y_scale_spin.setValue(100)
+        self.update_calibration()
+        print("Kalibrasyon sıfırlandı")
+    
     def closeEvent(self, event):
         """Uygulama kapatılırken çağrılır"""
         # Modülleri temizle
@@ -244,4 +364,27 @@ class VisionCursorGUI(QMainWindow):
         if self.speech_recognizer and self.speech_recognition_active:
             self.speech_recognizer.stop()
             
-        event.accept() 
+        event.accept()
+    
+    def test_speech_recognition(self):
+        """Ses tanıma sistemini test et"""
+        if self.speech_recognizer:
+            print("Ses tanıma testi başlatılıyor...")
+            self.speech_recognizer.test_microphone()
+        else:
+            print("Ses tanıma modülü henüz başlatılmamış!")
+    
+    def list_microphones(self):
+        """Mevcut mikrofonları listele"""
+        if self.speech_recognizer:
+            self.speech_recognizer.get_available_microphones()
+        else:
+            print("Ses tanıma modülü henüz başlatılmamış!")
+    
+    def toggle_eye_clicking(self):
+        """Göz tıklamayı aç/kapat"""
+        if self.eye_tracker:
+            is_enabled = self.click_enabled_button.isChecked()
+            self.eye_tracker.clicking_enabled = is_enabled
+            self.click_enabled_button.setText("Aktif" if is_enabled else "Pasif")
+            print(f"Göz tıklama: {'Aktif' if is_enabled else 'Pasif'}")
