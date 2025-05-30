@@ -15,13 +15,49 @@ class Camera:
     def start(self, callback=None):
         if self.is_running:
             return True
-        self.cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
-        if not self.cap.isOpened():
-            print("Kamera açılamadı!")
+        
+        # macOS için farklı kamera backend'leri dene
+        backends = [cv2.CAP_AVFOUNDATION, cv2.CAP_ANY, 0]
+        
+        for backend in backends:
+            try:
+                if backend == 0:
+                    self.cap = cv2.VideoCapture(0)
+                else:
+                    self.cap = cv2.VideoCapture(0, backend)
+                
+                if self.cap.isOpened():
+                    # Kamera test et
+                    ret, frame = self.cap.read()
+                    if ret and frame is not None:
+                        print(f"Kamera başarıyla açıldı (backend: {backend})")
+                        break
+                    else:
+                        self.cap.release()
+                        self.cap = None
+                else:
+                    if self.cap:
+                        self.cap.release()
+                        self.cap = None
+            except Exception as e:
+                print(f"Backend {backend} hatası: {e}")
+                if self.cap:
+                    self.cap.release()
+                    self.cap = None
+                continue
+        
+        if not self.cap or not self.cap.isOpened():
+            print("Hiçbir kamera backend'i çalışmadı!")
             return False
+            
+        # Kamera ayarları
         self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.width)
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.height)
         self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+        
+        # Buffer boyutunu azalt (düşük gecikme için)
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        
         self.is_running = True
         self.thread = threading.Thread(target=self._capture_loop, args=(callback,))
         self.thread.daemon = True
