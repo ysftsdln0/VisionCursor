@@ -9,6 +9,7 @@ from PyQt5.QtCore import Qt
 from modules.gui import VisionCursorGUI
 from modules.eye_tracker import EyeTracker
 from modules.speech_recognizer import SpeechRecognizer
+from modules.performance_monitor import PerformanceMonitor
 import threading
 
 # log ayarları
@@ -78,12 +79,17 @@ def main():
         
         # göz takibi ve ses modüllerini başlat
         try:
+            # Performans monitörü başlat
+            performance_monitor = PerformanceMonitor()
+            performance_monitor.start_monitoring()
+            
             eye_tracker = EyeTracker()
             speech_recognizer = SpeechRecognizer(callback=window.on_speech_recognized)
             
             # modülleri gui'ye bağla
             window.set_eye_tracker(eye_tracker)
             window.set_speech_recognizer(speech_recognizer)
+            window.set_performance_monitor(performance_monitor)
             
             # göz takibini başlat
             eye_tracker.start()
