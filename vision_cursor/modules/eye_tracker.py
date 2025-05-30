@@ -3,66 +3,70 @@ import mediapipe as mp
 import pyautogui
 import time
 import threading
+import cv2
 from .camera import Camera
-from PIL import Image, ImageDraw
 
 class EyeTracker:
     def __init__(self):
-        # Mediapipe yüz algılama modülünü başlat
+        # MediaPipe yüz algılama modülü
         self.mp_face_mesh = mp.solutions.face_mesh
         self.face_mesh = self.mp_face_mesh.FaceMesh(
             max_num_faces=1,
             refine_landmarks=True,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
+            min_detection_confidence=0.7,
+            min_tracking_confidence=0.7
         )
+        
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
         
         # Ekran boyutları
         self.screen_width, self.screen_height = pyautogui.size()
         
-        # Kamera başlatma
+        # Kamera
         self.camera = Camera(width=640, height=480, fps=30)
         
         # İzleme durumu
         self.tracking = False
         
-        # Göz bebeği takibi için değişkenler
-        self.pupil_threshold = 30
-        self.pupil_radius = 5
-        self.pupil_color = (255, 192, 203)  # Pembe renk
-        
-        # Göz bebeği pozisyonu için değişkenler
-        self.last_pupil_pos = None
-        self.pupil_movement_threshold = 5
-        
-        # Hareket yumuşatma için değişkenler
+        # Göz takibi için değişkenler
         self.last_positions = []
-        self.smooth_factor = 5
+        self.smooth_factor = 8
+        self.frame_skip = 2
+        self.frame_count = 0
         
         # Tıklama için değişkenler
         self.gaze_duration = 0
-        self.last_gaze_pos = (0, 0)
-        self.gaze_threshold = 2.0
-        self.gaze_radius = 30
+        self.last_gaze_pos = None
+        self.gaze_threshold = 2.5  # Daha uzun bekleme süresi
+        self.movement_threshold = 20  # Daha geniş hareket toleransı
+        self.last_time = time.time()
+        self.click_cooldown = 1.0  # Tıklamalar arası minimum süre
+        self.last_click_time = 0
         
-        # Göz referans noktaları (MediaPipe indeksleri)
-        self.LEFT_EYE = [362, 385, 387, 263, 373, 380]
-        self.RIGHT_EYE = [33, 160, 158, 133, 153, 144]
-        
-        # Kalibrasyon için offset
+        # Kalibrasyon
         self.offset_x = 0
         self.offset_y = 0
-
+        self.scale_x = 1.0
+        self.scale_y = 1.0
+        
+        # Tıklama kontrolü
+        self.clicking_enabled = True
+        
+        # Göz landmark indeksleri (MediaPipe)
+        self.LEFT_IRIS = [474, 475, 476, 477]
+        self.RIGHT_IRIS = [469, 470, 471, 472]
+        
     def start(self):
         if self.tracking:
             return
             
         try:
-            # Kamera başlat
             if not self.camera.start(callback=self._process_frame):
                 raise ValueError("Kamera başlatılamadı!")
                 
             self.tracking = True
+            print("Göz takibi başlatıldı")
             
         except Exception as e:
             self.camera.stop()
@@ -71,213 +75,166 @@ class EyeTracker:
     def stop(self):
         self.tracking = False
         self.camera.stop()
+        print("Göz takibi durduruldu")
     
     def _process_frame(self, image):
         if not self.tracking:
             return
             
+        # Performans için frame atlama
+        self.frame_count += 1
+        if self.frame_count % self.frame_skip != 0:
+            return
+            
         try:
+            # RGB'ye çevir
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
             # MediaPipe ile yüz tespiti
-            results = self.face_mesh.process(image)
+            results = self.face_mesh.process(rgb_image)
             
             if results.multi_face_landmarks:
                 face_landmarks = results.multi_face_landmarks[0]
                 
-                # Sol ve sağ göz bölgelerini al
-                left_eye_region = self._get_eye_region(image, face_landmarks, self.LEFT_EYE)
-                right_eye_region = self._get_eye_region(image, face_landmarks, self.RIGHT_EYE)
+                # İris merkezlerini al
+                left_iris_center = self._get_iris_center(face_landmarks, self.LEFT_IRIS)
+                right_iris_center = self._get_iris_center(face_landmarks, self.RIGHT_IRIS)
                 
-                if left_eye_region is not None and right_eye_region is not None:
-                    # Göz bebeklerini tespit et
-                    left_pupil = self._detect_pupil(left_eye_region)
-                    right_pupil = self._detect_pupil(right_eye_region)
+                if left_iris_center and right_iris_center:
+                    # Ortalamasını al
+                    avg_x = (left_iris_center[0] + right_iris_center[0]) / 2
+                    avg_y = (left_iris_center[1] + right_iris_center[1]) / 2
                     
-                    if left_pupil is not None and right_pupil is not None:
-                        # Göz bebeği merkezlerini global koordinata çevir
-                        left_global = self._eye_local_to_global(image, face_landmarks, self.LEFT_EYE, left_pupil)
-                        right_global = self._eye_local_to_global(image, face_landmarks, self.RIGHT_EYE, right_pupil)
-                        # Ortalamasını al
-                        avg_x = int((left_global[0] + right_global[0]) / 2)
-                        avg_y = int((left_global[1] + right_global[1]) / 2)
-                        # Ekran koordinatına ölçekle
-                        screen_x = np.interp(avg_x, [0, image.shape[1]], [0, self.screen_width]) + self.offset_x
-                        screen_y = np.interp(avg_y, [0, image.shape[0]], [0, self.screen_height]) + self.offset_y
-                        # İmleci doğrudan götür
-                        pyautogui.moveTo(int(screen_x), int(screen_y))
-                        
-                        current_time = time.time()
-                        
-                        # Göz bebeği hareketini kontrol et
-                        if self.last_pupil_pos is not None:
-                            movement = np.sqrt((avg_x - self.last_pupil_pos[0])**2 + 
-                                             (avg_y - self.last_pupil_pos[1])**2)
-                            
-                            if movement < self.pupil_movement_threshold:
-                                self.gaze_duration += time.time() - current_time
-                                
-                                if self.gaze_duration > self.gaze_threshold:
-                                    pyautogui.click()
-                                    self.gaze_duration = 0
-                            else:
-                                self.gaze_duration = 0
-                        
-                        self.last_pupil_pos = (avg_x, avg_y)
-                        
-                        # Görselleştirme
-                        self._draw_pupils(image, left_global, right_global)
+                    # Görüntü koordinatlarına çevir
+                    img_x = int(avg_x * image.shape[1])
+                    img_y = int(avg_y * image.shape[0])
+                    
+                    # Pozisyonu yumuşat
+                    smooth_x, smooth_y = self._smooth_position(img_x, img_y)
+                    
+                    # Ekran koordinatlarına ölçekle
+                    screen_x = self._map_to_screen_x(smooth_x, image.shape[1])
+                    screen_y = self._map_to_screen_y(smooth_y, image.shape[0])
+                    
+                    # İmleci hareket ettir
+                    pyautogui.moveTo(int(screen_x), int(screen_y))
+                    
+                    # Tıklama kontrolü
+                    self._check_for_click(smooth_x, smooth_y)
+                    
+                    # Görselleştirme
+                    self._draw_tracking_info(image, img_x, img_y)
             
         except Exception as e:
-            print(f"Görüntü işleme hatası: {str(e)}")
+            print(f"Frame işleme hatası: {str(e)}")
     
-    def _detect_pupil(self, eye_region):
+    def _get_iris_center(self, face_landmarks, iris_indices):
+        """İris merkezini hesapla"""
         try:
-            # Gri tonlamaya çevir
-            gray = np.mean(eye_region, axis=2).astype(np.uint8)
+            x_coords = []
+            y_coords = []
             
-            # Gürültüyü azalt
-            blurred = self._gaussian_blur(gray, kernel_size=7)
+            for idx in iris_indices:
+                if idx < len(face_landmarks.landmark):
+                    landmark = face_landmarks.landmark[idx]
+                    x_coords.append(landmark.x)
+                    y_coords.append(landmark.y)
             
-            # Eşikleme
-            thresh = self._threshold(blurred, self.pupil_threshold)
-            
-            # Konturları bul
-            contours = self._find_contours(thresh)
-            
-            if contours:
-                # En büyük konturu al (göz bebeği)
-                largest_contour = max(contours, key=self._contour_area)
-                
-                # Göz bebeğinin merkezini hesapla
-                cx, cy = self._contour_center(largest_contour)
-                return (int(cx), int(cy))
+            if x_coords and y_coords:
+                center_x = sum(x_coords) / len(x_coords)
+                center_y = sum(y_coords) / len(y_coords)
+                return (center_x, center_y)
             
             return None
         except Exception as e:
-            print(f"Göz bebeği tespiti hatası: {str(e)}")
+            print(f"İris merkezi hesaplama hatası: {e}")
             return None
-    
-    def _get_eye_region(self, image, face_landmarks, eye_indices):
-        points = []
-        for idx in eye_indices:
-            point = face_landmarks.landmark[idx]
-            points.append([point.x, point.y])
-        
-        if points:
-            x_min = int(min(p[0] for p in points) * image.shape[1])
-            x_max = int(max(p[0] for p in points) * image.shape[1])
-            y_min = int(min(p[1] for p in points) * image.shape[0])
-            y_max = int(max(p[1] for p in points) * image.shape[0])
-            
-            return image[y_min:y_max, x_min:x_max]
-        return None
-    
-    def _eye_local_to_global(self, image, face_landmarks, eye_indices, pupil):
-        points = []
-        for idx in eye_indices:
-            point = face_landmarks.landmark[idx]
-            points.append([point.x, point.y])
-        
-        if points:
-            x_min = int(min(p[0] for p in points) * image.shape[1])
-            y_min = int(min(p[1] for p in points) * image.shape[0])
-            return (x_min + pupil[0], y_min + pupil[1])
-        return (0, 0)
     
     def _smooth_position(self, x, y):
+        """Pozisyonu yumuşat"""
         self.last_positions.append((x, y))
         if len(self.last_positions) > self.smooth_factor:
             self.last_positions.pop(0)
         
-        avg_x = np.mean([p[0] for p in self.last_positions])
-        avg_y = np.mean([p[1] for p in self.last_positions])
+        if self.last_positions:
+            avg_x = sum(p[0] for p in self.last_positions) / len(self.last_positions)
+            avg_y = sum(p[1] for p in self.last_positions) / len(self.last_positions)
+            return avg_x, avg_y
         
-        return avg_x, avg_y
-        
-    def _gaussian_blur(self, image, kernel_size=7):
-        """Basit Gaussian blur uygular."""
-        kernel = np.ones((kernel_size, kernel_size)) / (kernel_size * kernel_size)
-        return self._convolve2d(image, kernel)
-        
-    def _convolve2d(self, image, kernel):
-        """2D konvolüsyon uygular."""
-        h, w = image.shape
-        kh, kw = kernel.shape
-        pad_h = kh // 2
-        pad_w = kw // 2
-        
-        padded = np.pad(image, ((pad_h, pad_h), (pad_w, pad_w)), mode='edge')
-        output = np.zeros_like(image)
-        
-        for i in range(h):
-            for j in range(w):
-                output[i, j] = np.sum(padded[i:i+kh, j:j+kw] * kernel)
-                
-        return output.astype(np.uint8)
-        
-    def _threshold(self, image, threshold):
-        """Basit eşikleme uygular."""
-        return (image < threshold).astype(np.uint8) * 255
-        
-    def _find_contours(self, image):
-        """Basit kontur bulma algoritması."""
-        h, w = image.shape
-        visited = np.zeros_like(image, dtype=bool)
-        contours = []
-        
-        def flood_fill(x, y, contour):
-            if (x < 0 or x >= w or y < 0 or y >= h or 
-                visited[y, x] or image[y, x] == 0):
-                return
-                
-            visited[y, x] = True
-            contour.append((x, y))
+        return x, y
+    
+    def _map_to_screen_x(self, img_x, img_width):
+        """X koordinatını ekrana ölçekle"""
+        normalized_x = img_x / img_width
+        screen_x = normalized_x * self.screen_width * self.scale_x + self.offset_x
+        return max(0, min(self.screen_width - 1, screen_x))
+    
+    def _map_to_screen_y(self, img_y, img_height):
+        """Y koordinatını ekrana ölçekle"""
+        normalized_y = img_y / img_height
+        screen_y = normalized_y * self.screen_height * self.scale_y + self.offset_y
+        return max(0, min(self.screen_height - 1, screen_y))
+    
+    def _check_for_click(self, x, y):
+        """Sabit bakış tıklama kontrolü"""
+        if not self.clicking_enabled:
+            return
             
-            flood_fill(x+1, y, contour)
-            flood_fill(x-1, y, contour)
-            flood_fill(x, y+1, contour)
-            flood_fill(x, y-1, contour)
-        
-        for y in range(h):
-            for x in range(w):
-                if not visited[y, x] and image[y, x] > 0:
-                    contour = []
-                    flood_fill(x, y, contour)
-                    if len(contour) > 10:  # Minimum kontur boyutu
-                        contours.append(np.array(contour))
-        
-        return contours
-        
-    def _contour_area(self, contour):
-        """Kontur alanını hesaplar."""
-        return len(contour)
-        
-    def _contour_center(self, contour):
-        """Kontur merkezini hesaplar."""
-        return np.mean(contour, axis=0)
-        
-    def _draw_pupils(self, image, left_pupil, right_pupil):
-        """Göz bebeklerini görselleştirir."""
-        pil_image = Image.fromarray(image)
-        draw = ImageDraw.Draw(pil_image)
-        
-        # Sol göz bebeği
-        draw.ellipse([
-            left_pupil[0] - self.pupil_radius,
-            left_pupil[1] - self.pupil_radius,
-            left_pupil[0] + self.pupil_radius,
-            left_pupil[1] + self.pupil_radius
-        ], fill=self.pupil_color)
-        
-        # Sağ göz bebeği
-        draw.ellipse([
-            right_pupil[0] - self.pupil_radius,
-            right_pupil[1] - self.pupil_radius,
-            right_pupil[0] + self.pupil_radius,
-            right_pupil[1] + self.pupil_radius
-        ], fill=self.pupil_color)
-        
-        # PIL görüntüsünü numpy dizisine dönüştür
-        image[:] = np.array(pil_image)
+        try:
+            current_time = time.time()
+            
+            # Cooldown kontrolü
+            if current_time - self.last_click_time < self.click_cooldown:
+                return
+            
+            if self.last_gaze_pos is not None:
+                # Hareket mesafesini hesapla
+                movement = np.sqrt((x - self.last_gaze_pos[0])**2 + 
+                                 (y - self.last_gaze_pos[1])**2)
+                
+                if movement < self.movement_threshold:
+                    # Sabit bakış süresi arttır
+                    self.gaze_duration += (current_time - self.last_time)
+                    
+                    if self.gaze_duration > self.gaze_threshold:
+                        # Tıklama yap
+                        pyautogui.click()
+                        self.gaze_duration = 0
+                        self.last_click_time = current_time
+                        print("Göz tıklaması!")
+                else:
+                    # Hareket varsa süreyi sıfırla
+                    self.gaze_duration = 0
+            
+            self.last_gaze_pos = (x, y)
+            self.last_time = current_time
+            
+        except Exception as e:
+            print(f"Tıklama kontrolü hatası: {e}")
+    
+    def _draw_tracking_info(self, image, x, y):
+        """Takip bilgilerini çiz"""
+        try:
+            # Göz pozisyonunu işaretle
+            cv2.circle(image, (int(x), int(y)), 5, (255, 192, 203), -1)
+            
+            # Tıklama progress'ini göster
+            if self.gaze_duration > 0:
+                progress = min(1.0, self.gaze_duration / self.gaze_threshold)
+                radius = int(30 * progress)
+                cv2.circle(image, (int(x), int(y)), radius, (0, 255, 0), 2)
+                
+        except Exception as e:
+            print(f"Görselleştirme hatası: {e}")
+    
+    def calibrate(self, offset_x=0, offset_y=0, scale_x=1.0, scale_y=1.0):
+        """Kalibrasyon ayarları"""
+        self.offset_x = offset_x
+        self.offset_y = offset_y
+        self.scale_x = scale_x
+        self.scale_y = scale_y
+        print(f"Kalibrasyon: offset({offset_x}, {offset_y}), scale({scale_x}, {scale_y})")
     
     def get_frame(self):
-        return self.camera.get_frame() 
+        """Mevcut frame'i al"""
+        return self.camera.get_frame()
